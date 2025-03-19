@@ -1,0 +1,137 @@
+---
+title: "Deseq2"
+output: html_document
+date: "2025-03-19"
+---
+
+
+https://bioinformatics-core-shared-training.github.io/cruk-summer-school-2021/RNAseq/Markdowns/07_Data_Exploration.html
+https://sbc.shef.ac.uk/prostate-bioinformatics/rna-seq-preprocessing.nb.html
+
+```{r}
+library(tximport)
+library(DESeq2)
+library(tidyverse)
+library(ggfortify)
+```
+
+
+
+```{r}
+dfExp<- read.csv("./RNA_count.csv", header = T, stringsAsFactors = FALSE)
+#dfExp.median <- aggregate(. ~ Gene_Symbol, data =dfExp, median)
+dfParsing_exp = dfExp[rowSums(is.na(dfExp))==0,]
+write.csv(dfParsing_exp ,              # 파일에 저장할 데이터 프레임 또는 행렬
+           file="/DATA05/home/youwone/JAL_RNAseq/JAL_Meidan_count.csv",        # 데이터를 저장할 파일명
+           row.names=TRUE)
+rownames(dfParsing_exp) = make.names(dfParsing_exp[,1], unique=TRUE)
+dfParsing_exp[,1] =NULL
+#열추출
+dfParsing_exp_A<-subset(dfParsing_exp,select=c(
+                                                  "A1_Read_Count",
+                                                  "A2_Read_Count",
+                                                  "A3_Read_Count",
+                                                  "A4_Read_Count",
+                                                  "A5_Read_Count",
+                                                  "A6_Read_Count",
+                                                  "A7_Read_Count",
+                                                  "A8_Read_Count",
+                                                  "A9_Read_Count",
+                                                  "A10_Read_Count",
+                                                  ))
+ctable=apply(dfParsing_exp_A,2,as.integer)
+rownames(ctable) = make.names(dfParsing_exp_A[,1], unique=TRUE)
+
+```
+
+```{r}
+metadata<- read.csv("./Meta.csv", header = T, stringsAsFactors = FALSE)
+metadata<-metadata %>% filter(Group=="A")
+metadata<-metadata %>% filter(Group2 %in% c("Vehicle","Treatment"))
+```
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = ctable,
+                              colData = metadata,
+                              design = ~Group2)
+dds$Group2<-relevel(dds$Group2, ref = "Vehicle")
+dds <- DESeq(dds,betaPrior=FALSE)
+resultsNames(dds) # lists the coefficients
+
+res <- results(dds)#, name="condition_trt_vs_untrt")
+# or to shrink log fold changes association with condition:
+res <- lfcShrink(dds)#, coef="condition_trt_vs_untrt", type="apeglm")
+write.csv(res, file='./DEG.csv')
+```
+
+
+
+Visualising library sizes
+```{r}
+
+
+sum(assay(dds)[,1])
+colSums(assay(dds))
+#Produce a bar plot to show the Millions of reads for each sample See below for an example
+is_expressed <- assay(dds) >= 5
+
+sum(is_expressed[1,])
+df <- data.frame(Expressed = rowSums(is_expressed))
+jpeg(file="./barplot.jpg",type='cairo')
+ggplot(df, aes(x=Expressed)) + geom_bar()
+dev.off()
+
+```
+Visualising count distributions
+```{r}
+jpeg(file="./count distributions.jpg",type='cairo')
+boxplot(assay(dds))
+dev.off()
+```
+Get log2 counts
+```{r}
+vsd <- vst(dds,blind=TRUE)
+```
+Check distributions of samples using boxplots
+```{r}
+jpeg(file="./count distributions.jpg",type='cairo')
+boxplot(assay(vsd), xlab="", ylab="Log2 counts per million",las=2,main="Normalised Distributions")
+abline(h=median(assay(vsd)), col="blue")
+dev.off()
+```
+
+Heatmap of the sample-to-sample distances
+```{r}
+sampleDists <- dist(t(assay(vsd)))
+
+library(RColorBrewer)
+library(pheatmap)
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- colData(dds)$ID
+colnames(sampleDistMatrix) <- colData(dds)$ID
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+jpeg(file="./heatmap.jpg",type='cairo')
+pheatmap(sampleDistMatrix,
+         col=colors)
+dev.off()
+
+```
+Principal component analysis (PCA)
+
+```{r}
+
+jpeg(file="./PCA.jpg",type='cairo')
+plotPCA(vsd,intgroup=c("Group2"))
+dev.off()
+plot_data <- plotPCA(vsd,intgroup="Group2",returnData=TRUE)
+plot_data <- bind_cols(plot_data,metadata)
+jpeg(file="./PCA-2.jpg",type='cairo',res=100,width=1000,height=1000,)
+ggplot(plot_data, aes(x = PC1,y=PC2, col=Group2)) + geom_point(size=1)+geom_text(aes(label = Group1), color = "black")
+dev.off()
+
+```
+
+
+
+
+
